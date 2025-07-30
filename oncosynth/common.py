@@ -7,6 +7,7 @@ from Bio import Entrez
 from crewai import Agent, Task, Crew, Process, LLM
 from langchain_openai import ChatOpenAI
 from crewai.tools import BaseTool
+import re
 
 # ---------------------------
 # WARNING CONTROL
@@ -593,44 +594,61 @@ def run_research(biomarker, target):
     )
 
     confidence_task = Task(
-        description=f"""
-        Score the synthetic lethality (SL) gene pair **{biomarker} – {target}** using this weighted rubric:
-        1. **SL Evidence (PubMed) – 40 points**
-           - Full points if at least one abstract **explicitly** mentions synthetic lethality between the pair.
-           - Partial (10–30) for synergy, DNA repair links, or indirect evidence.
-        2. **Drug Evidence (Open Targets) – 25 points**
-           - 20–25 points for drugs with known MoA and cancer relevance.
-           - 10–15 points for partial data (e.g. no disease context or unknown status).
-           - <10 if only weak or inactive agents.
-        3. **Clinical Trials – 15 points**
-           - 10–15 for direct trial mentions in ovarian cancer.
-           - <10 if general cancer trials or gene only appears as exploratory.
-        4. **Cancer-Relevant Literature – 20 points**
-           - 15–20 for mentions in ovarian cancer.
-           - 5–10 for mentions in other cancers without SL.
-           - 0 if no cancer relevance at all.
-        Use this exact output format:
-        ```
-        Confidence Score: <score>/100
-        SL Evidence (PubMed): <x>/40 – <justification>
-        Drug Evidence (Open Targets): <x>/25 – <justification>
-        Clinical Trials: <x>/15 – <justification>
-        Cancer Literature (PubMed): <x>/20 – <justification>
-        Reason: <Wrap-up sentence about strength/weakness of evidence>
-        ```
-        If there’s no evidence at all:
-        ```
-        Confidence Score: 10/100
-        SL Evidence (PubMed): 0/40 – No evidence found
-        Drug Evidence (Open Targets): 5/25 – No drug info
-        Clinical Trials: 5/15 – No trials found
-        Cancer Literature (PubMed): 0/20 – Gene not cancer-linked
-        Reason: No meaningful data found to support SL, druggability or cancer relevance.
-        ```
-        """,
-        expected_output="Structured score with component breakdown and rationale.",
-        context=[qa_task, sl_pair_task, biomarker_task, target_task, drug_task, clinical_task],
-        agent=confidence_agent
+    description=f"""
+    You are evaluating the synthetic lethality (SL) strength of evidence for the gene pair **{biomarker} – {target}**.
+
+    Score the pair using this rubric:
+
+    1. **SL Evidence (PubMed) – 40 points**
+       - Award **40/40** if any abstract in the SL PubMed search **explicitly** mentions "synthetic lethality" between {biomarker} and {target}.
+       - Give 20–30 points for partial or indirect evidence (e.g. synergy, co-inhibition, pathway interaction).
+       - Give 0–10 points if there's no clear relationship or relevance to SL.
+
+    2. **Drug Evidence (Open Targets) – 25 points**
+       - Award 20–25 if at least one drug is found with mechanism of action and disease context.
+       - Give 10–15 for partial matches (e.g. drug but no disease).
+       - Under 10 if only weak or exploratory drugs found.
+
+    3. **Clinical Trials – 15 points**
+       - Award 10–15 for active or past **cancer-related trials** involving either gene.
+       - Partial credit for general studies or exploratory mentions.
+
+    4. **Cancer-Relevant Literature (PubMed) – 20 points**
+       - Award 15–20 if {biomarker} and/or {target} are mentioned in ovarian or other cancers.
+       - Lower scores for weaker or tangential evidence.
+
+    🔎 Use only the outputs of the SL PubMed search, Open Targets tool, ClinicalTrials.gov tool, and gene-specific PubMed tools — do not guess.
+
+    Format your response exactly like this:
+
+    ```
+    Confidence Score: <score>/100
+    SL Evidence (PubMed): <x>/40 – <justification>
+    Drug Evidence (Open Targets): <x>/25 – <justification>
+    Clinical Trials: <x>/15 – <justification>
+    Cancer Literature (PubMed): <x>/20 – <justification>
+    Reason: <Wrap-up summary>
+    ```
+
+    If no real evidence is found at all:
+    ```
+    Confidence Score: 10/100
+    SL Evidence (PubMed): 0/40 – No evidence found
+    Drug Evidence (Open Targets): 5/25 – No drug info
+    Clinical Trials: 5/15 – No trials found
+    Cancer Literature (PubMed): 0/20 – Gene not cancer-linked
+    Reason: No meaningful data found to support SL, druggability or cancer relevance.
+    ```
+    """,
+    expected_output="Structured score with component breakdown and rationale.",
+    context=[
+        sl_pair_task,
+        biomarker_task,
+        target_task,
+        drug_task,
+        clinical_task
+    ],
+    agent=confidence_agent
     )
 
     writing_task = Task(
@@ -712,25 +730,35 @@ def run_research(biomarker, target):
     log_agent_output(biomarker, target, "confidence", confidence_task.output)
     log_agent_output(biomarker, target, "writer", result)
 
-    # Extract score
+# ---------------------------
+# Extract Confidence Score Safely
+# ---------------------------
     conf_text = confidence_task.output.output if hasattr(confidence_task.output, "output") else str(confidence_task.output)
-    try:
-        score_line = next(line for line in conf_text.splitlines() if "Confidence Score" in line)
-        score = int(score_line.split(":")[1].strip().split("/")[0])
-    except:
-        score = 0
 
-    # QA rejection?
+    # Extract score using regex for robustness
+    score = 0
+    score_match = re.search(r"Confidence Score:\s*(\d+)", conf_text)
+    if score_match:
+        score = int(score_match.group(1))
+
+    # Check QA rejection
     qa_text = str(qa_task.output)
-    rejected = qa_text.startswith("REJECTED:")
+    rejected = qa_text.strip().startswith("REJECTED:")
 
-    # Save to appropriate location
-    if rejected or score < 50:
-        content = result.output if hasattr(result, "output") else str(result)
-        header = f"⚠️ LOW CONFIDENCE REPORT ({score}/100)\n\n" if score < 50 else f"❌ QA REJECTED\n\n"
-        fallback_text = header + content
+# ---------------------------
+# Save Report Based on Outcome
+# ---------------------------
+    if rejected:
+        header = f"❌ QA REJECTED\n\n"
+        fallback_text = header + (result.output if hasattr(result, "output") else str(result))
         write_markdown_report(biomarker, target, fallback_text, folder="oncosynth/low_confidence_reports")
-        print(f"⚠️ Report saved to low confidence folder due to low score or QA rejection.")
+        print("❌ QA rejected this report.")
+
+    elif score < 50:
+        header = f"⚠️ LOW CONFIDENCE REPORT ({score}/100)\n\n"
+        fallback_text = header + (result.output if hasattr(result, "output") else str(result))
+        write_markdown_report(biomarker, target, fallback_text, folder="oncosynth/low_confidence_reports")
+        print(f"⚠️ Score too low ({score}/100) — saved to low confidence folder.")
+
     else:
         write_markdown_report(biomarker, target, result)
-
