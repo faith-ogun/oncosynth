@@ -1,0 +1,6 @@
+__pycache__/
+.env
+oncosynth/reports/
+oncosynth/logs/
+oncosynth/low_confidence_reports/
+

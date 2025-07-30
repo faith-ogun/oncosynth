@@ -1,0 +1,8 @@
+crewai
+langchain
+langchain-openai
+pydantic
+python-dotenv
+biopython
+pandas
+requests

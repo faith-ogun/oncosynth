@@ -1,0 +1,18 @@
+[project]
+name = "oncosynth"
+version = "0.1.0"
+description = "Synthetic lethality agent framework using CrewAI"
+authors = [{ name="Faith Ogundimu", email="faithogun12@gmail.com" }]
+dependencies = [
+  "crewai",
+  "langchain",
+  "langchain-openai",
+  "pydantic",
+  "python-dotenv",
+  "biopython",
+  "pandas",
+  "requests"
+]
+
+[project.scripts]
+oncosynth = "oncosynth.cli:main"

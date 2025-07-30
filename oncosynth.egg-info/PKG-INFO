@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: oncosynth
+Version: 0.1.0
+Summary: Synthetic lethality agent framework using CrewAI
+Author-email: Faith Ogundimu <faithogun12@gmail.com>
+Requires-Dist: crewai
+Requires-Dist: langchain
+Requires-Dist: langchain-openai
+Requires-Dist: pydantic
+Requires-Dist: python-dotenv
+Requires-Dist: biopython
+Requires-Dist: pandas
+Requires-Dist: requests
