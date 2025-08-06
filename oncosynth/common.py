@@ -1,6 +1,6 @@
 import os
 import requests
-from typing import Type, Optional
+from typing import Type, Optional, Dict, Any, Union, List
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, PrivateAttr
 from Bio import Entrez
@@ -8,6 +8,7 @@ from crewai import Agent, Task, Crew, Process, LLM
 from langchain_openai import ChatOpenAI
 from crewai.tools import BaseTool
 import re
+import json
 
 # ---------------------------
 # WARNING CONTROL
@@ -82,11 +83,11 @@ class SLPairSearchTool(BaseTool):
         ]
 
         try:
-            all_entries = []
+            all_results = []
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
@@ -105,19 +106,22 @@ class SLPairSearchTool(BaseTool):
                     article_data = article["MedlineCitation"]["Article"]
                     title = article_data.get("ArticleTitle", "No title")
                     abstract = " ".join(article_data["Abstract"]["AbstractText"]) if "Abstract" in article_data else "No abstract"
-                    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+                    
+                    all_results.append({
+                        "query": query,
+                        "pmid": pmid,
+                        "title": title.strip(),
+                        "abstract": abstract.strip(),
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+                    })
 
-                    all_entries.append(
-                        f"Query: {query}\n- PMID: {pmid} – {url}\n  **Title**: {title.strip()}\n  **Abstract**: {abstract.strip()}"
-                    )
+            if not all_results:
+                return json.dumps({"results": [], "message": "No SL-specific PubMed results found."})
 
-            if not all_entries:
-                return "No SL-specific PubMed results found."
-
-            return "\n\n".join(all_entries)
+            return json.dumps({"results": all_results}, indent=2)
 
         except Exception as e:
-            return f"Error accessing PubMed SL pair search: {str(e)}"
+            return json.dumps({"error": f"Error accessing PubMed SL pair search: {str(e)}"})
 
 # ---------------------------
 # TOOL 2: Biomarker-only Cancer Context
@@ -138,11 +142,11 @@ class BiomarkerPubMedSearchTool(BaseTool):
         ]
 
         try:
-            all_entries = []
+            all_results = []
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
@@ -161,19 +165,22 @@ class BiomarkerPubMedSearchTool(BaseTool):
                     article_data = article["MedlineCitation"]["Article"]
                     title = article_data.get("ArticleTitle", "No title")
                     abstract = " ".join(article_data["Abstract"]["AbstractText"]) if "Abstract" in article_data else "No abstract"
-                    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
 
-                    all_entries.append(
-                        f"Query: {query}\n- PMID: {pmid} – {url}\n  **Title**: {title.strip()}\n  **Abstract**: {abstract.strip()}"
-                    )
+                    all_results.append({
+                        "query": query,
+                        "pmid": pmid,
+                        "title": title.strip(),
+                        "abstract": abstract.strip(),
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+                    })
 
-            if not all_entries:
-                return f"No cancer-related results found for {biomarker}"
+            if not all_results:
+                return json.dumps({"results": [], "message": f"No cancer-related results found for {biomarker}"})
 
-            return "\n\n".join(all_entries)
+            return json.dumps({"results": all_results}, indent=2)
 
         except Exception as e:
-            return f"Error accessing PubMed for biomarker: {str(e)}"
+            return json.dumps({"error": f"Error accessing PubMed for biomarker: {str(e)}"})
 
 # ---------------------------
 # TOOL 3: Target-only Cancer Context
@@ -194,11 +201,11 @@ class TargetPubMedSearchTool(BaseTool):
         ]
 
         try:
-            all_entries = []
+            all_results = []
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
@@ -217,152 +224,433 @@ class TargetPubMedSearchTool(BaseTool):
                     article_data = article["MedlineCitation"]["Article"]
                     title = article_data.get("ArticleTitle", "No title")
                     abstract = " ".join(article_data["Abstract"]["AbstractText"]) if "Abstract" in article_data else "No abstract"
-                    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
 
-                    all_entries.append(
-                        f"Query: {query}\n- PMID: {pmid} – {url}\n  **Title**: {title.strip()}\n  **Abstract**: {abstract.strip()}"
-                    )
+                    all_results.append({
+                        "query": query,
+                        "pmid": pmid,
+                        "title": title.strip(),
+                        "abstract": abstract.strip(),
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+                    })
 
-            if not all_entries:
-                return f"No cancer-related results found for {target}"
+            if not all_results:
+                return json.dumps({"results": [], "message": f"No cancer-related results found for {target}"})
 
-            return "\n\n".join(all_entries)
+            return json.dumps({"results": all_results}, indent=2)
 
         except Exception as e:
-            return f"Error accessing PubMed for target: {str(e)}"
+            return json.dumps({"error": f"Error accessing PubMed for target: {str(e)}"})
 
 
 # ---------------------------
-# TOOL: Open Targets Search
+# TOOL 4: Open Targets Search
 # ---------------------------
 
 class OpenTargetsInput(BaseModel):
+    biomarker: str = Field(description="The biomarker gene symbol")
     target: str = Field(description="The target gene symbol")
 
 class OpenTargetsTool(BaseTool):
     name: str = "Open Targets Tool"
-    description: str = "Fetches drug info from Open Targets for the target gene"
+    description: str = "Fetches drug info and tractability scores from Open Targets for both genes"
     args_schema: Type[BaseModel] = OpenTargetsInput
 
     _hgnc_map: dict = PrivateAttr()
 
     def __init__(self, hgnc_map: dict):
         super().__init__()
-        self._hgnc_map = hgnc_map  # ← use _hgnc_map, not hgnc_map
+        self._hgnc_map = hgnc_map
 
     def symbol_to_ensembl(self, symbol: str) -> Optional[str]:
         return self._hgnc_map.get(symbol)
 
-    def _run(self, target: str) -> str:
-        ensembl_id = self.symbol_to_ensembl(target)
-        if not ensembl_id:
-            return f"No Ensembl ID found for gene: {target}"
+    def _run(self, biomarker: str, target: str) -> str:
+        final_json = {}
 
-        query = """
-        query KnownDrugsQuery($ensgId: String!, $cursor: String, $size: Int) {
-          target(ensemblId: $ensgId) {
-            knownDrugs(cursor: $cursor, size: $size) {
-              rows {
-                phase
-                status
-                urls {
-                  url
+        for gene_name in [biomarker, target]:
+            ensembl_id = self.symbol_to_ensembl(gene_name)
+            if not ensembl_id:
+                final_json[gene_name.upper()] = {"ERROR": f"No Ensembl ID found for gene: {gene_name}"}
+                continue
+
+            query = """
+            query target($ensemblId: String!) {
+              target(ensemblId: $ensemblId) {
+                id
+                approvedSymbol
+                biotype
+                tractability {
+                  label
+                  modality
+                  value
                 }
-                disease {
-                  name
+                knownDrugs {
+                  count
+                  rows {
+                    phase
+                    status
+                    urls {
+                      url
+                    }
+                    disease {
+                      name
+                    }
+                    drug {
+                      name
+                    }
+                    mechanismOfAction
+                  }
                 }
-                drug {
-                  name
-                }
-                mechanismOfAction
               }
             }
-          }
-        }
-        """
+            """
 
-        variables = {
-            "ensgId": ensembl_id,
-            "cursor": None,
-            "size": 20
-        }
+            variables = {"ensemblId": ensembl_id}
+            url = "https://api.platform.opentargets.org/api/v4/graphql"
 
-        url = "https://api.platform.opentargets.org/api/v4/graphql"
-        res = requests.post(url, json={"query": query, "variables": variables})
-        res.raise_for_status()
-        drugs = res.json()["data"]["target"]["knownDrugs"]["rows"]
+            try:
+                res = requests.post(url, json={"query": query, "variables": variables})
+                res.raise_for_status()
+                response_data = res.json()
 
-        if not drugs:
-            return f"No drugs found for {target} ({ensembl_id})"
+                if "errors" in response_data:
+                    final_json[gene_name.upper()] = {"ERROR": response_data["errors"]}
+                    continue
 
-        output = [f"Drugs targeting {target} ({ensembl_id}):"]
-        for d in drugs:
-            drug_name = d["drug"]["name"]
-            moa = d["mechanismOfAction"] or "N/A"
-            disease = d["disease"]["name"]
-            status = d["status"]
-            phase = d["phase"]
-            link = next((u["url"] for u in d["urls"] if u.get("url")), "N/A")
-            output.append(
-                f"- {drug_name}:\n"
-                f"  • Phase: {phase}\n"
-                f"  • Status: {status}\n"
-                f"  • MoA: {moa}\n"
-                f"  • Disease: {disease}\n"
-                f"  • Link: {link}"
-            )
+                target_data = response_data.get("data", {}).get("target")
+                if not target_data:
+                    final_json[gene_name.upper()] = {"ERROR": "No target data found"}
+                    continue
 
-        return "\n".join(output)
+                tractability = target_data.get("tractability", [])
+                known_drugs = target_data.get("knownDrugs", {})
+                drug_count = known_drugs.get("count", 0)
+                drugs = known_drugs.get("rows", [])
+
+                sm_scores = [t for t in tractability if t.get("modality") == "SM"]
+                tract_labels = {t.get("label", ""): t.get("value", 10) for t in sm_scores}
+
+                high_conf_labels = {"Approved Drug"}
+                mid_conf_labels = {"Advanced Clinical", "Phase 1 Clinical", "Clinical Precedence"}
+                low_conf_labels = {"Structure with Ligand", "High-Quality Ligand", "High-Quality Pocket", "Druggable Family"}
+
+                # Only get labels where the value is True
+                true_labels = {label for label, value in tract_labels.items() if value}
+
+                if true_labels & high_conf_labels:
+                    interpretation = "HIGH tractability (approved drug exists)"
+                elif true_labels & mid_conf_labels:
+                    interpretation = "MODERATE tractability (clinical-stage target)"
+                elif true_labels & low_conf_labels:
+                    interpretation = "LOW tractability (ligandable but no clinical-stage evidence)"
+                else:
+                    interpretation = "LOW tractability (no tractability evidence)"
+
+                final_json[gene_name.upper()] = {
+                    "TRACTABILITY_SCORES": {
+                        "SMALL_MOLECULE": tract_labels,
+                        "INTERPRETATION": interpretation
+                    },
+                    "KNOWN_DRUGS": drugs
+                }
+
+            except requests.RequestException as e:
+                final_json[gene_name.upper()] = {"ERROR": f"HTTP error: {str(e)}"}
+            except Exception as e:
+                final_json[gene_name.upper()] = {"ERROR": f"Unexpected error: {str(e)}"}
+
+        return json.dumps(final_json, indent=2)
+
 
 # ---------------------------
-# TOOL: ClinicalTrials.gov Search
+# TOOL 5: ClinicalTrials.gov Search
 # ---------------------------
 
 class ClinicalTrialsInput(BaseModel):
-    gene: str = Field(description="Gene symbol to search for in clinical trial records")
+    genes: List[str] = Field(description="List of gene symbols to search for in clinical trial records")
 
 class ClinicalTrialsTool(BaseTool):
     name: str = "Clinical Trials Tool"
-    description: str = "Searches ClinicalTrials.gov for trials involving the gene"
+    description: str = "Searches ClinicalTrials.gov for trials involving one or more genes"
     args_schema: Type[BaseModel] = ClinicalTrialsInput
 
-    def _run(self, gene: str) -> str:
-        res = requests.get(
-            "https://clinicaltrials.gov/api/v2/studies",
-            params={"query.term": gene, "pageSize": 10}
-        )
-        res.raise_for_status()
-        studies = res.json().get("studies", [])
+    def _run(self, genes: List[str]) -> str:
+        merged_results = {}
 
-        if not studies:
-            return f"No clinical trials found for gene: {gene}."
+        for gene in genes:
+            res = requests.get(
+                "https://clinicaltrials.gov/api/v2/studies",
+                params={"query.term": gene, "pageSize": 10}
+            )
+            res.raise_for_status()
+            studies = res.json().get("studies", [])
 
-        output = [f"Clinical trials mentioning {gene}:\n"]
-        for study in studies:
-            try:
-                ps = study["protocolSection"]
-                ident = ps["identificationModule"]
-                status = ps.get("statusModule", {})
-                conditions = ps.get("conditionsModule", {}).get("conditions", [])
-                design = ps.get("designModule", {})
-                nct_id = ident["nctId"]
-                title = ident.get("briefTitle", "No title")
-                condition_str = ", ".join(conditions) or "No condition listed"
-                phase = ", ".join(design.get("phases", [])) or "N/A"
-                trial_status = status.get("overallStatus", "Unknown")
-                trial_url = f"https://clinicaltrials.gov/study/{nct_id}"
+            all_results = []
+            for study in studies:
+                try:
+                    ps = study["protocolSection"]
+                    ident = ps["identificationModule"]
+                    status = ps.get("statusModule", {})
+                    conditions = ps.get("conditionsModule", {}).get("conditions", [])
+                    design = ps.get("designModule", {})
+                    nct_id = ident["nctId"]
+                    title = ident.get("briefTitle", "No title")
+                    condition_str = ", ".join(conditions) or "No condition listed"
+                    phase = ", ".join(design.get("phases", [])) or "N/A"
+                    trial_status = status.get("overallStatus", "Unknown")
+                    trial_url = f"https://clinicaltrials.gov/study/{nct_id}"
 
-                output.append(
-                    f"- [{title}]({trial_url})\n"
-                    f"  - **NCT ID**: {nct_id}\n"
-                    f"  - **Phase**: {phase}\n"
-                    f"  - **Status**: {trial_status}\n"
-                    f"  - **Condition(s)**: {condition_str}"
-                )
-            except Exception as e:
-                output.append(f"- Failed to parse study: {e}")
+                    all_results.append({
+                        "gene": gene,
+                        "nct_id": nct_id,
+                        "title": title,
+                        "phase": phase,
+                        "status": trial_status,
+                        "conditions": condition_str,
+                        "url": trial_url
+                    })
+                except Exception as e:
+                    all_results.append({
+                        "gene": gene,
+                        "error": f"Failed to parse study: {e}"
+                    })
 
-        return "\n\n".join(output)
+            merged_results[f"{gene.upper()} Trials"] = all_results
+
+        return json.dumps(merged_results, indent=2)
+
+# ---------------------------
+# TOOL 6: Deterministic Scoring Tool
+# ---------------------------
+    
+class ConfidenceScoringInput(BaseModel):
+    biomarker: str
+    target: str
+    sl_results: Dict[str, Any]                
+    biomarker_results: Dict[str, Any]          
+    target_results: Dict[str, Any]           
+    opentargets_results: Dict[str, Any] 
+    trials_results: Dict[str, Any]                 
+
+class DeterministicConfidenceTool(BaseTool):
+    name: str = "Deterministic Confidence Scoring Tool"
+    description: str = "Computes a deterministic, reproducible confidence score for synthetic lethality evidence between two genes"
+    args_schema: Type[BaseModel] = ConfidenceScoringInput
+
+    def _run(
+    self,
+    biomarker: str,
+    target: str,
+    sl_results: Dict[str, Any],
+    biomarker_results: Dict[str, Any],
+    target_results: Dict[str, Any],
+    opentargets_results: Dict[str, Any],
+    trials_results: Dict[str, Any]
+    ) -> str:
+    
+        sl_data = sl_results
+        biomarker_data = biomarker_results
+        target_data = target_results
+        trials_data = trials_results
+
+        # DEBUG: Dump inputs to JSON file for inspection
+        debug_dir = "oncosynth/logs/_debug_inputs"
+        os.makedirs(debug_dir, exist_ok=True)
+
+        with open(f"{debug_dir}/{biomarker}_{target}_inputs.json", "w") as f:
+            json.dump({
+                "biomarker": biomarker,
+                "target": target,
+                "sl_results": sl_data,
+                "biomarker_results": biomarker_data,
+                "target_results": target_data,
+                "opentargets_results": opentargets_results,
+                "trials_results": trials_data
+            }, f, indent=2)
+
+        total_score = 0
+        breakdown = []
+        breakdown.append(f"CONFIDENCE SCORE BREAKDOWN FOR {biomarker} – {target}")
+        breakdown.append("=" * 60)
+
+        # ----------------------------------------
+        # 1. DIRECT SL EVIDENCE (40 points max)
+        # ----------------------------------------
+        sl_score = 0
+        explicit_hit = False
+        functional_hit = False
+
+        # Process SL results from JSON
+        sl_articles = sl_data.get("results", [])
+        for article in sl_articles:
+            title = article.get("title", "").lower()
+            abstract = article.get("abstract", "").lower()
+            combined_text = title + " " + abstract
+
+            if any(kw in combined_text for kw in [
+                "synthetic lethality", "synthetic lethal", "synthetically lethal", 
+                "lethal sensitivity", "lethal interaction", "synergistic lethality"
+            ]):
+                explicit_hit = True
+
+            if any(kw in combined_text for kw in [
+                "inhibitor", "synergy", "synergistic", "knockdown", "knockout", 
+                "essential", "dependency", "sensitization", "replication stress", 
+                "dna damage", "cell cycle", "apoptosis"
+            ]):
+                functional_hit = True
+
+        if explicit_hit:
+            sl_score += 30
+            breakdown.append("✅ Explicit SL mention found in PubMed results: 30 points")
+        else:
+            breakdown.append("❌ No explicit SL mention in PubMed results: 0 points")
+
+        if functional_hit:
+            sl_score += 10
+            breakdown.append("✅ Functional perturbation evidence present: 10 points")
+        else:
+            breakdown.append("❌ No functional evidence terms found: 0 points")
+
+        total_score += sl_score
+        breakdown.append(f"→ SUBTOTAL: {sl_score}/40 points")
+
+        # ----------------------------------------
+        # 2. DRUGGABILITY (30 points max) 
+        # ----------------------------------------
+        drug_score = 0
+
+        for gene in [biomarker, target]:
+            gene_score = 0
+            gene_data = opentargets_results.get(gene.upper(), {})
+        
+            tract = gene_data.get("TRACTABILITY_SCORES", {}).get("SMALL_MOLECULE", {})
+            known_drugs = gene_data.get("KNOWN_DRUGS", [])
+        
+            # Count number of True flags
+            tractability_keys = [
+                "Approved Drug", "Advanced Clinical", "Phase 1 Clinical",
+                "Structure with Ligand", "High-Quality Ligand",
+                "High-Quality Pocket", "Med-Quality Pocket", "Druggable Family"
+            ]
+            true_flags = sum(1 for k in tractability_keys if tract.get(k) is True)
+        
+            if true_flags >= 6:
+                gene_score = 15
+                breakdown.append(f"✅ {gene}: 15 points - HIGH tractability ({true_flags}/8 flags)")
+            elif 3 <= true_flags <= 5:
+                gene_score = 10
+                breakdown.append(f"⚠️ {gene}: 10 points - MODERATE tractability ({true_flags}/8 flags)")
+            elif true_flags > 0 or known_drugs:
+                gene_score = 5
+                breakdown.append(f"⚠️ {gene}: 5 points - LOW tractability ({true_flags}/8 flags)")
+            else:
+                breakdown.append(f"❌ {gene}: 0 points - no tractability or drug evidence")
+        
+            drug_score += gene_score
+
+        # ----------------------------------------
+        # 3. CLINICAL EVIDENCE (15 points max)
+        # ----------------------------------------
+        clinical_score = 0
+        
+        # Check trials data for each gene
+        biomarker_trials = trials_data.get(f"{biomarker.upper()} Trials", [])
+        target_trials = trials_data.get(f"{target.upper()} Trials", [])
+
+        biomarker_has_trials = len(biomarker_trials) > 0
+        target_has_trials = len(target_trials) > 0
+
+        if biomarker_has_trials:
+            clinical_score += 7
+            breakdown.append(f"✅ {biomarker} has clinical trials: 7 points")
+        else:
+            breakdown.append(f"❌ {biomarker} no trials: 0 points")
+
+        if target_has_trials:
+            clinical_score += 8
+            breakdown.append(f"✅ {target} has clinical trials: 8 points")
+        else:
+            breakdown.append(f"❌ {target} no trials: 0 points")
+
+        total_score += clinical_score
+        breakdown.append(f"→ SUBTOTAL: {clinical_score}/15 points")
+
+        # ----------------------------------------
+        # 4. CANCER RELEVANCE (15 points max)
+        # ----------------------------------------
+        cancer_score = 0
+        cancer_keywords = ["cancer", "tumor", "carcinoma", "oncology", "malignant", "lymphoma", "leukemia"]
+        ovarian_keywords = ["ovarian cancer", "ovarian carcinoma", "ovarian tumor", "ovarian neoplasm"]
+
+        # Check biomarker articles
+        biomarker_articles = biomarker_data.get("results", [])
+        biomarker_has_cancer = False
+        biomarker_has_ovarian = False
+
+        for article in biomarker_articles:
+            combined_text = (article.get("title", "") + " " + article.get("abstract", "")).lower()
+            if not biomarker_has_cancer and any(kw in combined_text for kw in cancer_keywords):
+                biomarker_has_cancer = True
+            if not biomarker_has_ovarian and any(kw in combined_text for kw in ovarian_keywords):
+                biomarker_has_ovarian = True
+            if biomarker_has_cancer and biomarker_has_ovarian:
+                break
+
+        # Check target articles
+        target_articles = target_data.get("results", [])
+        target_has_cancer = False
+        target_has_ovarian = False
+
+        for article in target_articles:
+            combined_text = (article.get("title", "") + " " + article.get("abstract", "")).lower()
+
+            if not target_has_cancer and any(kw in combined_text for kw in cancer_keywords):
+                target_has_cancer = True
+
+            if not target_has_ovarian and any(kw in combined_text for kw in ovarian_keywords):
+                target_has_ovarian = True
+
+            if target_has_cancer and target_has_ovarian:
+                break
+            
+
+        if biomarker_has_cancer:
+            cancer_score += 5
+            breakdown.append(f"✅ {biomarker} cancer relevance: 5 points")
+        else:
+            breakdown.append(f"❌ {biomarker} no cancer relevance: 0 points")
+
+        if target_has_cancer:
+            cancer_score += 5
+            breakdown.append(f"✅ {target} cancer relevance: 5 points")
+        else:
+            breakdown.append(f"❌ {target} no cancer relevance: 0 points")
+
+        if biomarker_has_ovarian or target_has_ovarian:
+            cancer_score += 5
+            breakdown.append("✅ Ovarian cancer relevance: 5 points")
+        else:
+            breakdown.append("❌ No ovarian cancer relevance: 0 points")
+
+        total_score += cancer_score
+        breakdown.append(f"→ SUBTOTAL: {cancer_score}/15 points")
+
+        # ----------------------------------------
+        # Final score + interpretation
+        # ----------------------------------------
+        breakdown.append(f"\n{'=' * 60}")
+        breakdown.append(f"FINAL CONFIDENCE SCORE: {total_score}/100")
+        breakdown.append(f"{'=' * 60}")
+
+        if total_score >= 70:
+            breakdown.append("🎯 INTERPRETATION: HIGH CONFIDENCE")
+        elif total_score >= 40:
+            breakdown.append("⚠️ INTERPRETATION: MEDIUM CONFIDENCE")
+        else:
+            breakdown.append("❌ INTERPRETATION: LOW CONFIDENCE")
+
+        return "\n".join(breakdown)
 
 # ---------------------------
 # Markdown REPORT WRITER
@@ -398,6 +686,7 @@ def run_research(biomarker, target):
     sl_pair_tool = SLPairSearchTool()
     biomarker_tool = BiomarkerPubMedSearchTool()
     target_tool = TargetPubMedSearchTool()
+    confidence_tool = DeterministicConfidenceTool()
 
     hgnc_map = load_hgnc_map(os.path.join(os.path.dirname(__file__), "assets", "gene_with_protein_product.txt"))
     opentargets_tool = OpenTargetsTool(hgnc_map)
@@ -409,7 +698,8 @@ def run_research(biomarker, target):
         goal="Search PubMed for synthetic lethality between the biomarker and target gene pair",
         backstory="Specialist in extracting SL pair interactions from biomedical literature.",
         tools=[sl_pair_tool],
-        allow_delegation=False
+        allow_delegation=False,
+        llm=None
     )
 
     biomarker_agent = Agent(
@@ -417,7 +707,8 @@ def run_research(biomarker, target):
         goal="Retrieve cancer-related PubMed studies about the biomarker gene",
         backstory="Expert in biomarker discovery through mining cancer-focused publications.",
         tools=[biomarker_tool],
-        allow_delegation=False
+        allow_delegation=False,
+        llm=None
     )
 
     target_agent = Agent(
@@ -425,7 +716,8 @@ def run_research(biomarker, target):
         goal="Retrieve cancer-related PubMed studies about the target gene",
         backstory="Expert in evaluating potential therapeutic targets using literature evidence.",
         tools=[target_tool],
-        allow_delegation=False
+        allow_delegation=False,
+        llm=None
     )
 
     opentargets = Agent(
@@ -433,7 +725,8 @@ def run_research(biomarker, target):
     goal="Retrieve drug/inhibitor data for each gene from Open Targets",
     backstory="Expert in therapeutic targeting, mechanisms of action, and drug status evaluation.",
     tools=[opentargets_tool],
-    allow_delegation=False
+    allow_delegation=False,
+    llm=None
     )
 
     trials = Agent(
@@ -441,36 +734,14 @@ def run_research(biomarker, target):
     goal="Retrieve information about ongoing or past clinical trials for each gene",
     backstory="Specialist in mining ClinicalTrials.gov for drug development and biomarker translation data.",
     tools=[clinical_trials_tool],
-    allow_delegation=False
+    allow_delegation=False,
+    llm=None
     )
 
     analyst = Agent(
         role="Biomedical Research Analyst",
         goal="Analyse and synthesise relevance of findings",
         backstory="Skilled at turning raw search data into structured biomedical insights with emphasis on cancer relevance.",
-        verbose=True,
-        llm=llm
-    )
-
-    qa = Agent(
-        role="Scientific QA Reviewer",
-        goal="Ensure the report is focused, evidence-based, and cancer-relevant. If not, recommend further search.",
-        backstory=(
-            "You are a former editor at a top cancer research journal. You assess whether the findings are specific, actionable, and correctly sourced. "
-            "If the output reads like generic filler, lacks citations, or overstates the evidence, you MUST reject the report and return feedback only."
-        ),
-        verbose=True,
-        llm=llm
-    )
-
-    confidence_agent = Agent(
-        role="Confidence Scoring Evaluator",
-        goal="Score the strength of evidence for the SL interaction",
-        backstory=(
-            "You are a rigorous SL evidence evaluator. "
-            "You score the strength of evidence based on peer-reviewed literature, drug info, cancer relevance, and quality of sources. "
-            "You output a score from 0 to 100 and a justification for your score."
-        ),
         verbose=True,
         llm=llm
     )
@@ -485,170 +756,56 @@ def run_research(biomarker, target):
 
     # Tasks
     sl_pair_task = Task(
-        description=f"""
-        Search PubMed for **synthetic lethality** studies mentioning both **{biomarker}** and **{target}**.
-
-        Focus strictly on co-mentions where synthetic lethality is explicitly discussed between the two genes.
-
-        Include:
-        - Up to 5 relevant abstracts.
-        - PubMed IDs (PMIDs), titles, abstracts.
-        - Direct PubMed links.
-
-        This task is for SL-specific co-mentions, but you can mention general cancer, but NOT single-gene studies.
-        """,
-        expected_output="List of SL-specific PubMed abstracts for the gene pair with PMIDs and URLs.",
-        agent=sl_pair_agent
+    description=f"Use the SL PubMed Search Tool to search for synthetic lethal related studies involving {biomarker} and {target}.",
+    expected_output="Raw JSON output from tool - do not summarize or reformat.",
+    agent=sl_pair_agent
     )
 
     biomarker_task = Task(
-        description=f"""
-        Search PubMed for **cancer-related studies** involving the biomarker gene: **{biomarker}**.
-
-        Focus on:
-        - General cancer relevance
-        - Ovarian cancer specificity
-        - Roles in gene regulation, DNA repair, tumour progression
-
-        Include:
-        - Up to 3 abstracts per query
-        - PubMed IDs, titles, abstracts
-        - Direct links
-
-        This task should only return results related to the **biomarker**, not the target.
-        """,
-        expected_output=f"List of PubMed results focused on biomarker {biomarker}.",
-        agent=biomarker_agent
+    description=f"Use the Biomarker PubMed Search Tool to search for cancer-related studies involving {biomarker}.",
+    expected_output="Raw JSON output from tool - do not summarize or reformat.",
+    agent=biomarker_agent   
     )
 
     target_task = Task(
-        description=f"""
-        Search PubMed for **cancer-related studies** involving the target gene: **{target}**.
-
-        Focus on:
-        - General cancer relevance
-        - Ovarian cancer specificity
-        - Roles in gene regulation, DNA repair, tumour progression
-
-        Include:
-        - Up to 3 abstracts per query
-        - PubMed IDs, titles, abstracts
-        - Direct links
-
-        This task should only return results related to the **target**, not the biomarker.
-        """,
-        expected_output=f"List of PubMed results focused on target gene {target}.",
-        agent=target_agent
+    description=f"Use the Target PubMed Search Tool to search for cancer-related studies involving {target}.",
+    expected_output="Raw JSON output from tool - do not summarize or reformat.",
+    agent=target_agent
     )
 
     drug_task = Task(
-        description=f"""
-        Use the Open Targets API to search for **drugs or inhibitors** associated with **{biomarker}** and **{target}**.
-
-        Include:
-        - Drug name, type, and approval status (e.g., Approved, Clinical Trial, Preclinical).
-        - Disease context or cancer type targeted.
-        - Mechanism of action (MoA) if available.
-        - If no drug is found for a gene, state that clearly.
-
-        Output must be structured by gene symbol.
-
-        This task is strictly drug-focused. Do not include PubMed or trial data.
-        """,
-        expected_output="Structured drug data from Open Targets for each gene.",
-        agent=opentargets
+    description=f"Use the Open Targets Tool to search for drugs and tractability data for {biomarker} and {target}.",
+    expected_output="Raw JSON output from Open Targets API - do not summarize or reformat.",
+    agent=opentargets
     )
 
     clinical_task = Task(
-        description=f"""
-        Search ClinicalTrials.gov for **active or past clinical trials** involving **{biomarker}** and **{target}**.
-
-        Include for each trial:
-        - Trial title
-        - NCT ID
-        - Trial phase (e.g. Phase I, II, III)
-        - Status (e.g. Recruiting, Completed)
-        - Condition/disease being studied
-        - Direct link to trial
-
-        Focus on **cancer-related** trials, especially those in **ovarian** cancer.
-
-        This task is strictly ClinicalTrials.gov-focused. Do not include drug or PubMed data.
-        """,
-        expected_output="Structured list of relevant clinical trials involving either gene.",
-        agent=trials
+    description=f"""
+    Use the Clinical Trials Tool with input: genes=["{biomarker}", "{target}"].
+    Return the raw JSON result. Do not summarize or reformat anything.
+    """,
+    expected_output="Raw JSON from tool with trials for both genes",
+    agent=trials
     )
 
     analysis_task = Task(
-        description="Analyse the search results from all agents and assess their relevance to synthetic lethality, cancer context, and potential therapeutic value.",
-        expected_output="A structured analysis of whether this gene pair is synthetically lethal and cancer-relevant, and whether any drug targets exist.",
-        context=[sl_pair_task, biomarker_task, target_task, drug_task, clinical_task],
-        agent=analyst
-    )
-
-    qa_task = Task(
-        description="Review the analysis for clarity, depth, and relevance. If not strong, suggest more search or context refinement. If rejected, output must start with 'REJECTED: <reason>'.",
-        expected_output="Approve or deny readiness for final writing. Suggest improvements if needed.",
-        context=[analysis_task],
-        agent=qa
-    )
-
-    confidence_task = Task(
     description=f"""
-    You are evaluating the synthetic lethality (SL) strength of evidence for the gene pair **{biomarker} – {target}**.
-
-    Score the pair using this rubric:
-
-    1. **SL Evidence (PubMed) – 40 points**
-       - Award **40/40** if any abstract in the SL PubMed search **explicitly** mentions "synthetic lethality" between {biomarker} and {target}.
-       - Give 20–30 points for partial or indirect evidence (e.g. synergy, co-inhibition, pathway interaction).
-       - Give 0–10 points if there's no clear relationship or relevance to SL.
-
-    2. **Drug Evidence (Open Targets) – 25 points**
-       - Award 20–25 if at least one drug is found with mechanism of action and disease context.
-       - Give 10–15 for partial matches (e.g. drug but no disease).
-       - Under 10 if only weak or exploratory drugs found.
-
-    3. **Clinical Trials – 15 points**
-       - Award 10–15 for active or past **cancer-related trials** involving either gene.
-       - Partial credit for general studies or exploratory mentions.
-
-    4. **Cancer-Relevant Literature (PubMed) – 20 points**
-       - Award 15–20 if {biomarker} and/or {target} are mentioned in ovarian or other cancers.
-       - Lower scores for weaker or tangential evidence.
-
-    🔎 Use only the outputs of the SL PubMed search, Open Targets tool, ClinicalTrials.gov tool, and gene-specific PubMed tools — do not guess.
-
-    Format your response exactly like this:
-
-    ```
-    Confidence Score: <score>/100
-    SL Evidence (PubMed): <x>/40 – <justification>
-    Drug Evidence (Open Targets): <x>/25 – <justification>
-    Clinical Trials: <x>/15 – <justification>
-    Cancer Literature (PubMed): <x>/20 – <justification>
-    Reason: <Wrap-up summary>
-    ```
-
-    If no real evidence is found at all:
-    ```
-    Confidence Score: 10/100
-    SL Evidence (PubMed): 0/40 – No evidence found
-    Drug Evidence (Open Targets): 5/25 – No drug info
-    Clinical Trials: 5/15 – No trials found
-    Cancer Literature (PubMed): 0/20 – Gene not cancer-linked
-    Reason: No meaningful data found to support SL, druggability or cancer relevance.
-    ```
+    You are analyzing ONLY the gene pair: **{biomarker} ({biomarker}) and {target} ({target})**.
+    
+    CRITICAL: You must ONLY discuss {biomarker} and {target}. Do not mention any other genes.
+    
+    Analyze the search results and assess their relevance to synthetic lethality between {biomarker} and {target} specifically.
+    
+    Focus on:
+    - Whether {biomarker} and {target} show synthetic lethality
+    - Cancer relevance of this specific pair
+    - Therapeutic potential for {biomarker}-{target} interactions
+    
+    Do NOT analyze any other gene pairs. Only {biomarker} and {target}.
     """,
-    expected_output="Structured score with component breakdown and rationale.",
-    context=[
-        sl_pair_task,
-        biomarker_task,
-        target_task,
-        drug_task,
-        clinical_task
-    ],
-    agent=confidence_agent
+    expected_output=f"Analysis of {biomarker}-{target} synthetic lethality and therapeutic potential.",
+    context=[sl_pair_task, biomarker_task, target_task, drug_task, clinical_task],
+    agent=analyst
     )
 
     writing_task = Task(
@@ -685,7 +842,7 @@ def run_research(biomarker, target):
         Write in clean, clinical markdown.
         """,
         expected_output="A markdown-formatted report with real citations and structured sections.",
-        context=[qa_task, sl_pair_task, biomarker_task, target_task, drug_task, clinical_task],
+        context=[sl_pair_task, biomarker_task, target_task, drug_task, clinical_task],
         agent=writer
     )
 
@@ -698,8 +855,6 @@ def run_research(biomarker, target):
             opentargets,
             trials,
             analyst,
-            qa,
-            confidence_agent,
             writer
         ],
         tasks=[
@@ -709,8 +864,6 @@ def run_research(biomarker, target):
             drug_task,
             clinical_task,
             analysis_task,
-            qa_task,
-            confidence_task,
             writing_task
         ],
         verbose=True,
@@ -719,46 +872,83 @@ def run_research(biomarker, target):
 
     result = crew.kickoff()
 
-    # Logs
+# ---------------------------
+# MANUAL CONFIDENCE SCORING 
+# ---------------------------
+
+    def extract_and_parse_json(task_output, name="unknown"):
+        raw_str = task_output.raw if hasattr(task_output, 'raw') else str(task_output)
+        # Save raw output to file for debugging
+        debug_path = f"oncosynth/logs/_debug_inputs/{name}_raw.txt"
+        os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+        with open(debug_path, "w") as f:
+            f.write(raw_str)
+        try:
+            return json.loads(raw_str)  # try parsing directly
+        except json.JSONDecodeError:
+            # Try to extract inner JSON block if extra text surrounds it
+            match = re.search(r'(\{.*\})', raw_str, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+                try:
+                    return json.loads(json_str)
+                except Exception as inner_e:
+                    raise ValueError(f"⚠️ {name} JSON extraction failed (inner parse): {inner_e}")
+            else:
+                raise ValueError(f"⚠️ {name} JSON extraction failed: Could not find valid JSON in raw output.")
+
+    sl_data = extract_and_parse_json(sl_pair_task.output, name="sl_pair")
+    biomarker_data = extract_and_parse_json(biomarker_task.output, name="biomarker")
+    target_data = extract_and_parse_json(target_task.output, name="target")
+    opentargets_data = extract_and_parse_json(drug_task.output, name="opentargets")
+    trials_data = extract_and_parse_json(clinical_task.output, name="clinicaltrials")
+
+    try:
+        confidence_result = confidence_tool._run(
+            biomarker=biomarker,
+            target=target,
+            sl_results=sl_data,
+            biomarker_results=biomarker_data,
+            target_results=target_data,
+            opentargets_results=opentargets_data,
+            trials_results=trials_data
+        )
+        print("✅ Manual confidence scoring completed!")
+    except Exception as e:
+        confidence_result = "Error in confidence scoring"
+        print(f"❌ Manual confidence scoring failed: {e}")
+
+# ---------------------------
+# LOGS
+# ---------------------------
     log_agent_output(biomarker, target, "sl_pair_pubmed", sl_pair_task.output)
     log_agent_output(biomarker, target, "biomarker_pubmed", biomarker_task.output)
     log_agent_output(biomarker, target, "target_pubmed", target_task.output)
     log_agent_output(biomarker, target, "opentargets", drug_task.output)
     log_agent_output(biomarker, target, "clinicaltrials", clinical_task.output)
     log_agent_output(biomarker, target, "analysis", analysis_task.output)
-    log_agent_output(biomarker, target, "qa", qa_task.output)
-    log_agent_output(biomarker, target, "confidence", confidence_task.output)
+    log_agent_output(biomarker, target, "confidence", type('obj', (object,), {'output': confidence_result})())
     log_agent_output(biomarker, target, "writer", result)
 
 # ---------------------------
-# Extract Confidence Score Safely
+# Extract Confidence Score
 # ---------------------------
-    conf_text = confidence_task.output.output if hasattr(confidence_task.output, "output") else str(confidence_task.output)
-
-    # Extract score using regex for robustness
-    score = 0
-    score_match = re.search(r"Confidence Score:\s*(\d+)", conf_text)
-    if score_match:
-        score = int(score_match.group(1))
-
-    # Check QA rejection
-    qa_text = str(qa_task.output)
-    rejected = qa_text.strip().startswith("REJECTED:")
+    score_match = re.search(r"FINAL CONFIDENCE SCORE:\s*(\d+)", confidence_result)
+    score = int(score_match.group(1)) if score_match else 0
 
 # ---------------------------
-# Save Report Based on Outcome
+# Build final report header
 # ---------------------------
-    if rejected:
-        header = f"❌ QA REJECTED\n\n"
-        fallback_text = header + (result.output if hasattr(result, "output") else str(result))
-        write_markdown_report(biomarker, target, fallback_text, folder="oncosynth/low_confidence_reports")
-        print("❌ QA rejected this report.")
-
-    elif score < 50:
+    if score < 50:
         header = f"⚠️ LOW CONFIDENCE REPORT ({score}/100)\n\n"
-        fallback_text = header + (result.output if hasattr(result, "output") else str(result))
-        write_markdown_report(biomarker, target, fallback_text, folder="oncosynth/low_confidence_reports")
-        print(f"⚠️ Score too low ({score}/100) — saved to low confidence folder.")
-
     else:
-        write_markdown_report(biomarker, target, result)
+        header = f"✅ HIGH CONFIDENCE REPORT ({score}/100)\n\n"
+
+# ---------------------------
+# Save report (always to same folder)
+# ---------------------------
+    final_text = result.output if hasattr(result, "output") else str(result)
+    final_report = header + final_text
+    
+    write_markdown_report(biomarker, target, final_report)
+    print(f"📄 Report written for {biomarker}–{target} with DETERMINISTIC score {score}")
