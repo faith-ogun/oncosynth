@@ -523,10 +523,10 @@ class DeterministicConfidenceTool(BaseTool):
         for gene in [biomarker, target]:
             gene_score = 0
             gene_data = opentargets_results.get(gene.upper(), {})
-        
+
             tract = gene_data.get("TRACTABILITY_SCORES", {}).get("SMALL_MOLECULE", {})
             known_drugs = gene_data.get("KNOWN_DRUGS", [])
-        
+
             # Count number of True flags
             tractability_keys = [
                 "Approved Drug", "Advanced Clinical", "Phase 1 Clinical",
@@ -534,7 +534,7 @@ class DeterministicConfidenceTool(BaseTool):
                 "High-Quality Pocket", "Med-Quality Pocket", "Druggable Family"
             ]
             true_flags = sum(1 for k in tractability_keys if tract.get(k) is True)
-        
+
             if true_flags >= 6:
                 gene_score = 15
                 breakdown.append(f"✅ {gene}: 15 points - HIGH tractability ({true_flags}/8 flags)")
@@ -546,7 +546,7 @@ class DeterministicConfidenceTool(BaseTool):
                 breakdown.append(f"⚠️ {gene}: 5 points - LOW tractability ({true_flags}/8 flags)")
             else:
                 breakdown.append(f"❌ {gene}: 0 points - no tractability or drug evidence")
-        
+
             drug_score += gene_score
 
         # ----------------------------------------
@@ -878,20 +878,23 @@ def run_research(biomarker, target):
 
     def extract_and_parse_json(task_output, name="unknown"):
         raw_str = task_output.raw if hasattr(task_output, 'raw') else str(task_output)
-        # Save raw output to file for debugging
         debug_path = f"oncosynth/logs/_debug_inputs/{name}_raw.txt"
         os.makedirs(os.path.dirname(debug_path), exist_ok=True)
         with open(debug_path, "w") as f:
             f.write(raw_str)
+
         try:
-            return json.loads(raw_str)  # try parsing directly
+            # Fix bad unicode escapes like \u20 (incomplete)
+            cleaned_str = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', raw_str)
+            return json.loads(cleaned_str)
         except json.JSONDecodeError:
             # Try to extract inner JSON block if extra text surrounds it
             match = re.search(r'(\{.*\})', raw_str, re.DOTALL)
             if match:
                 json_str = match.group(1)
                 try:
-                    return json.loads(json_str)
+                    cleaned_inner = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', json_str)
+                    return json.loads(cleaned_inner)
                 except Exception as inner_e:
                     raise ValueError(f"⚠️ {name} JSON extraction failed (inner parse): {inner_e}")
             else:
