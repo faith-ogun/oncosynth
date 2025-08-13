@@ -438,27 +438,27 @@ class DeterministicConfidenceTool(BaseTool):
     args_schema: Type[BaseModel] = ConfidenceScoringInput
 
     def _run(
-    self,
-    biomarker: str,
-    target: str,
-    sl_results: Dict[str, Any],
-    biomarker_results: Dict[str, Any],
-    target_results: Dict[str, Any],
-    opentargets_results: Dict[str, Any],
-    trials_results: Dict[str, Any]
+        self,
+        target: str,
+        biomarker: str,
+        sl_results: Dict[str, Any],
+        biomarker_results: Dict[str, Any],
+        target_results: Dict[str, Any],
+        opentargets_results: Dict[str, Any],
+        trials_results: Dict[str, Any]
     ) -> str:
-    
         sl_data = sl_results
         biomarker_data = biomarker_results
+
         target_data = target_results
         trials_data = trials_results
-
         # DEBUG: Dump inputs to JSON file for inspection
         debug_dir = "oncosynth/logs/_debug_inputs"
-        os.makedirs(debug_dir, exist_ok=True)
 
+        os.makedirs(debug_dir, exist_ok=True)
         with open(f"{debug_dir}/{biomarker}_{target}_inputs.json", "w") as f:
             json.dump({
+
                 "biomarker": biomarker,
                 "target": target,
                 "sl_results": sl_data,
@@ -467,47 +467,47 @@ class DeterministicConfidenceTool(BaseTool):
                 "opentargets_results": opentargets_results,
                 "trials_results": trials_data
             }, f, indent=2)
-
         total_score = 0
         breakdown = []
+
         breakdown.append(f"CONFIDENCE SCORE BREAKDOWN FOR {biomarker} – {target}")
         breakdown.append("=" * 60)
-
         # ----------------------------------------
         # 1. DIRECT SL EVIDENCE (40 points max)
+
         # ----------------------------------------
         sl_score = 0
         explicit_hit = False
         functional_hit = False
-
         # Process SL results from JSON
         sl_articles = sl_data.get("results", [])
+
         for article in sl_articles:
             title = article.get("title", "").lower()
             abstract = article.get("abstract", "").lower()
             combined_text = title + " " + abstract
-
             if any(kw in combined_text for kw in [
                 "synthetic lethality", "synthetic lethal", "synthetically lethal", 
+
                 "lethal sensitivity", "lethal interaction", "synergistic lethality"
             ]):
                 explicit_hit = True
-
             if any(kw in combined_text for kw in [
                 "inhibitor", "synergy", "synergistic", "knockdown", "knockout", 
+
                 "essential", "dependency", "sensitization", "replication stress", 
                 "dna damage", "cell cycle", "apoptosis"
             ]):
                 functional_hit = True
-
         if explicit_hit:
             sl_score += 30
+
             breakdown.append("✅ Explicit SL mention found in PubMed results: 30 points")
         else:
             breakdown.append("❌ No explicit SL mention in PubMed results: 0 points")
-
         if functional_hit:
             sl_score += 10
+
             breakdown.append("✅ Functional perturbation evidence present: 10 points")
         else:
             breakdown.append("❌ No functional evidence terms found: 0 points")
@@ -549,17 +549,31 @@ class DeterministicConfidenceTool(BaseTool):
 
             drug_score += gene_score
 
+        # FIX 1: ADD DRUG SCORE TO TOTAL
+        total_score += drug_score
+        breakdown.append(f"→ SUBTOTAL: {drug_score}/30 points")
+
         # ----------------------------------------
         # 3. CLINICAL EVIDENCE (15 points max)
         # ----------------------------------------
         clinical_score = 0
-        
-        # Check trials data for each gene
-        biomarker_trials = trials_data.get(f"{biomarker.upper()} Trials", [])
-        target_trials = trials_data.get(f"{target.upper()} Trials", [])
 
-        biomarker_has_trials = len(biomarker_trials) > 0
-        target_has_trials = len(target_trials) > 0
+        # FIX 2: HANDLE CORRECT DATA STRUCTURE
+        # Check if data structure has "results" wrapper
+        if "results" in trials_data:
+            biomarker_trials = trials_data["results"].get(biomarker.upper(), [])
+            target_trials = trials_data["results"].get(target.upper(), [])
+        else:
+            # Fallback to original structure
+            biomarker_trials = trials_data.get(f"{biomarker.upper()} Trials", [])
+            target_trials = trials_data.get(f"{target.upper()} Trials", [])
+
+        biomarker_has_trials = len(biomarker_trials) > 0 and not any(
+            "error" in trial for trial in biomarker_trials
+        )
+        target_has_trials = len(target_trials) > 0 and not any(
+            "error" in trial for trial in target_trials
+        )
 
         if biomarker_has_trials:
             clinical_score += 7
@@ -604,52 +618,52 @@ class DeterministicConfidenceTool(BaseTool):
 
         for article in target_articles:
             combined_text = (article.get("title", "") + " " + article.get("abstract", "")).lower()
-
+    
             if not target_has_cancer and any(kw in combined_text for kw in cancer_keywords):
                 target_has_cancer = True
-
+    
             if not target_has_ovarian and any(kw in combined_text for kw in ovarian_keywords):
                 target_has_ovarian = True
-
+    
             if target_has_cancer and target_has_ovarian:
                 break
             
-
+            
         if biomarker_has_cancer:
             cancer_score += 5
             breakdown.append(f"✅ {biomarker} cancer relevance: 5 points")
         else:
             breakdown.append(f"❌ {biomarker} no cancer relevance: 0 points")
-
+    
         if target_has_cancer:
             cancer_score += 5
             breakdown.append(f"✅ {target} cancer relevance: 5 points")
         else:
             breakdown.append(f"❌ {target} no cancer relevance: 0 points")
-
+    
         if biomarker_has_ovarian or target_has_ovarian:
             cancer_score += 5
             breakdown.append("✅ Ovarian cancer relevance: 5 points")
         else:
             breakdown.append("❌ No ovarian cancer relevance: 0 points")
-
+    
         total_score += cancer_score
         breakdown.append(f"→ SUBTOTAL: {cancer_score}/15 points")
-
+    
         # ----------------------------------------
         # Final score + interpretation
         # ----------------------------------------
         breakdown.append(f"\n{'=' * 60}")
         breakdown.append(f"FINAL CONFIDENCE SCORE: {total_score}/100")
         breakdown.append(f"{'=' * 60}")
-
+    
         if total_score >= 70:
             breakdown.append("🎯 INTERPRETATION: HIGH CONFIDENCE")
         elif total_score >= 40:
             breakdown.append("⚠️ INTERPRETATION: MEDIUM CONFIDENCE")
         else:
             breakdown.append("❌ INTERPRETATION: LOW CONFIDENCE")
-
+    
         return "\n".join(breakdown)
 
 # ---------------------------
