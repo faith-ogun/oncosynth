@@ -7,8 +7,9 @@
 ## 🚀 Features
 
 - Multi-agent cancer data pipeline (PubMed, Open Targets, ClinicalTrials.gov)
+- Human-focused literature searches using MeSH terms
+- Deterministic confidence scoring (0-100) with automatic retry mechanism
 - Outputs structured **markdown reports** per gene pair
-- Confidence scoring and QA rejection safeguards
 - Supports **interactive mode** and **batch mode**
 - Plug-and-play: just need an OpenAI key and Entrez email
 
@@ -20,7 +21,7 @@
 git clone https://github.com/faith-ogun/oncosynth.git
 cd oncosynth
 pip install -e .
-````
+```
 
 This installs the `oncosynth` CLI globally.
 
@@ -51,7 +52,7 @@ You must provide a **CSV file with at least two columns**.
 
 * The **first column** will be treated as the biomarker gene.
 * The **second column** will be treated as the target gene.
-* Column headers can be named anything (they’re auto-detected).
+* Column headers can be named anything (they're auto-detected).
 
 ### Example:
 
@@ -90,21 +91,12 @@ oncosynth -b path/to/gene_pairs.csv
 
 ### Reports
 
-* Successful reports are saved to:
-
-  ```
-  oncosynth/reports/
-  ```
-
-* Low-confidence or QA-rejected reports go to:
-
-  ```
-  oncosynth/low_confidence_reports/
-  ```
+* All reports are saved to `oncosynth/reports/` with confidence scores in the header
+* Reports include confidence interpretation (HIGH/MEDIUM/LOW) based on deterministic scoring
 
 ### Logs
 
-Logs for each agent’s output per gene pair are stored in:
+Logs for each agent's output per gene pair are stored in:
 
 ```
 oncosynth/logs/<BIOMARKER>_<TARGET>/
@@ -112,22 +104,33 @@ oncosynth/logs/<BIOMARKER>_<TARGET>/
 
 ---
 
+## 🎯 Confidence Scoring
+
+OncoSynth uses a deterministic 100-point scoring system:
+
+- **Direct SL Evidence** (40 points): Explicit synthetic lethality mentions and functional evidence
+- **Druggability** (30 points): Open Targets tractability scores and known drugs
+- **Clinical Evidence** (15 points): Active clinical trials for both genes
+- **Cancer Relevance** (15 points): Cancer and ovarian cancer literature evidence
+
+**Automatic Retry**: If a gene pair receives a score of 0, the system automatically retries up to 3 times before accepting the result.
+
+---
+
 ## 🧩 Architecture
 
 OncoSynth runs a multi-agent system using:
 
-* **SL Search Agent** → PubMed co-mention mining
+* **SL Search Agent** → PubMed co-mention mining with MeSH terms
 * **Literature Agents** → Cancer relevance for both genes
 * **Drug Agent** → Open Targets API integration
 * **Trial Agent** → ClinicalTrials.gov search
-* **Analyst + QA + Confidence + Writer** → Structured output and review
+* **Analyst + Confidence + Writer** → Structured output and scoring
 
 ---
 
 ## 🧪 Coming Soon
 
-* Optional `--dry-run` mode
-* Custom scoring schemes
 * Streamlit front-end
 
 ---
@@ -140,6 +143,6 @@ MIT License. Built using CrewAI (Apache 2.0).
 
 ## 🙋‍♀️ Contact
 
-Developed by Faith Ogundimu · Cancer Bioinformatics Researcher - PhD Candidate
+Developed by Faith Ogundimu · Cancer Bioinformatics Researcher - PhD Candidate  
 🔗 [GitHub](https://github.com/faith-ogun)  
 🔗 [LinkedIn](https://www.linkedin.com/in/faith-ogundimu)
