@@ -87,7 +87,7 @@ class SLPairSearchTool(BaseTool):
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
@@ -146,7 +146,7 @@ class BiomarkerPubMedSearchTool(BaseTool):
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
@@ -205,7 +205,7 @@ class TargetPubMedSearchTool(BaseTool):
             seen_pmids = set()
 
             for query in queries:
-                handle = Entrez.esearch(db="pubmed", term=query, retmax=5)
+                handle = Entrez.esearch(db="pubmed", term=query, retmax=10)
                 record = Entrez.read(handle)
                 pmid_list = record["IdList"]
 
