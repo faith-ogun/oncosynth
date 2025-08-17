@@ -1,9 +1,9 @@
 streamlit
-plotly 
 pandas
-python-dotenv
-biopython
-crewai
-langchain-openai
-requests
-pydantic
+python-dotenv==1.0.0
+biopython==1.81
+crewai==0.55.2
+chromadb==0.4.24
+langchain-openai==0.0.8
+requests==2.31.0
+pydantic==1.10.12
