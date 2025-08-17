@@ -4,7 +4,7 @@ def run_research_interactive():
     print("🔬 SL Report Generator")
     biomarker = input("Enter biomarker gene symbol (e.g. MYC): ").strip().upper()
     target = input("Enter target gene symbol (e.g. CHEK1): ").strip().upper()
-    run_research(biomarker, target)
+    run_research(biomarker, target, attempt=1)
 
 # ---------------------------
 # RUN INTERACTIVE MODE

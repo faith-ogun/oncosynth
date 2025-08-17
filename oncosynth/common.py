@@ -77,9 +77,9 @@ class SLPairSearchTool(BaseTool):
 
     def _run(self, biomarker: str, target: str) -> str:
         queries = [
-            f"{biomarker} AND {target} AND synthetic lethality",
-            f"{biomarker} AND {target} AND synthetic lethal",
-            f"{biomarker} AND {target}"
+            f"{biomarker} AND {target} AND synthetic lethality AND humans[MeSH]",
+            f"{biomarker} AND {target} AND synthetic lethal AND humans[MeSH]",
+            f"{biomarker} AND {target} AND humans[MeSH]"
         ]
 
         try:
@@ -137,8 +137,8 @@ class BiomarkerPubMedSearchTool(BaseTool):
 
     def _run(self, biomarker: str) -> str:
         queries = [
-            f"{biomarker} AND cancer",
-            f"{biomarker} AND ovarian cancer"
+            f"{biomarker} AND cancer AND humans[MeSH]",
+            f"{biomarker} AND ovarian cancer AND humans[MeSH]"
         ]
 
         try:
@@ -196,8 +196,8 @@ class TargetPubMedSearchTool(BaseTool):
 
     def _run(self, target: str) -> str:
         queries = [
-            f"{target} AND cancer",
-            f"{target} AND ovarian cancer"
+            f"{target} AND cancer AND humans[MeSH]",
+            f"{target} AND ovarian cancer AND humans[MeSH]"
         ]
 
         try:
@@ -695,7 +695,7 @@ def log_agent_output(biomarker, target, agent_name, content):
 # CREW SETUP
 # ---------------------------
 
-def run_research(biomarker, target):
+def run_research(biomarker, target, attempt=1):
 
     sl_pair_tool = SLPairSearchTool()
     biomarker_tool = BiomarkerPubMedSearchTool()
@@ -952,7 +952,14 @@ def run_research(biomarker, target):
 # ---------------------------
     score_match = re.search(r"FINAL CONFIDENCE SCORE:\s*(\d+)", confidence_result)
     score = int(score_match.group(1)) if score_match else 0
-
+    
+    # Check for score of 0 and retry if needed
+    if score == 0 and attempt < 3:
+        print(f"⚠️ Score of 0 detected for {biomarker}-{target} (attempt {attempt}/3). Retrying...")
+        return run_research(biomarker, target, attempt + 1)
+    elif score == 0 and attempt == 3:
+        print(f"❌ Final attempt failed for {biomarker}-{target}. Accepting score of 0.")
+    
 # ---------------------------
 # Build final report header
 # ---------------------------

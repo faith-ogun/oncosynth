@@ -1,7 +1,7 @@
 from oncosynth.common import run_research
 
 def run_research_batch(biomarker, target):
-    run_research(biomarker, target)
+    run_research(biomarker, target, attempt=1)
 
 # ---------------------------
 # RUN BATCH MODE
