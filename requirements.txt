@@ -1,9 +1,0 @@
-streamlit
-plotly 
-pandas
-python-dotenv
-biopython
-crewai
-langchain-openai
-requests
-pydantic
